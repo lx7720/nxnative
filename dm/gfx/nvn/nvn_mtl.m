@@ -10303,6 +10303,12 @@ static int fx_mode(void) {
     MLOG("present upscaling (DM_PRESENT_UPSCALE): %s", v ? "metalfx, MetalFX's spatial scaler where the picture is shown larger than the game renders it" : "off, bilinear");
     return g_fx_mode = v;
 }
+// The Mac window's key 3 (front_mac.m): MetalFX upscaling now, and switching it while the game runs (the present reads g_fx_mode each frame; off where the GPU has no Metal 4 spatial scaler)
+int dm_gfx_mfx(void) { return fx_mode(); }
+int dm_gfx_mfx_toggle(void) {
+    if (fx_mode() == 0 && !(g_q4 && [MTLFXSpatialScalerDescriptor supportsMetal4FX:g_dev])) return 0;
+    g_fx_mode = !g_fx_mode; MLOG("present upscaling → %s (key 3)", g_fx_mode ? "metalfx" : "off"); return g_fx_mode;
+}
 // MetalFX scales the content (cw x ch) to its rectangle on the canvas (vp) when the rectangle is at least as large in both directions and larger in one
 static int fx_wanted(MTLViewport vp, NSUInteger cw, NSUInteger ch) {
     NSUInteger w = (NSUInteger)vp.width, h = (NSUInteger)vp.height;
