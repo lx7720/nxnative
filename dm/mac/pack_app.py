@@ -43,7 +43,7 @@ def first_file(d):
 
 
 def can_clone(src, dst_dir):   # whether a file of src can be cloned into dst_dir (the same APFS volume)
-    f = first_file(src)
+    f = src if src.is_file() else first_file(src)   # a RomFS image is one file (os.walk of a file yields nothing)
     if f is None: return False
     t = dst_dir / '.clone_test'
     try:
