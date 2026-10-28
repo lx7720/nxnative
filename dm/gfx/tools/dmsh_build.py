@@ -926,7 +926,10 @@ def finish(key, w, j, c1):
             src = open(msl).read()
     try: src = dmsh_atomic.check_msl(src)
     except ValueError as e: return 'image atomic MSL failed', str(e), None
-    if j['stage'] == 'ps' and key in DSB_KEYS:   # the dual-source variant (DSB_KEYS): its own translation in its own folder, then MSL and a library beside the shader's
+    # Dual-source blending reads exactly colour outputs 0 and 1, so every pixel shader that writes those two and no other gets a variant (Metroid Prime 4: Beyond: 455 of 129,972),
+    # plus any the profile lists in dsb.tsv; DMSH_DSB=0 turns the automatic choice off
+    dsb_auto = os.environ.get('DMSH_DSB', '1') != '0' and re.search(r'\[\[color\(1\)', src) and re.search(r'\[\[color\(0\)', src) and not re.search(r'\[\[color\([2-7]\)', src)
+    if j['stage'] == 'ps' and (key in DSB_KEYS or dsb_auto):   # the dual-source variant: its own translation in its own folder, then MSL and a library beside the shader's
         wd = os.path.join(w, 'dsb_' + key); os.makedirs(wd, exist_ok=True); jp = os.path.join(wd, 'job.json'); json.dump([dict(j, dsb=True)], open(jp, 'w'))
         rx = subprocess.run([XLATE, jp, wd], capture_output=True, text=True); sp, m2 = os.path.join(wd, key + '.spv'), os.path.join(wd, key + '.metal')
         r2 = None if rx.returncode or not os.path.exists(sp) else subprocess.run([SPIRV_CROSS, *dmsh_atomic.cross_args(XC, sp), sp, '--output', m2], capture_output=True, text=True)
