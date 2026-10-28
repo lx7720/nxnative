@@ -100,19 +100,21 @@ static int key_bit(unsigned short code) {
 }
 // In-game box and number keys (the way MacNativeGames' Tears of the Kingdom shows its shortcuts), top right of the game picture, refreshed twice a second:
 // 1 the box (shortcuts and frame rate → frame rate only → hidden), 2 an Unreal game's render resolution 100 → 150 → 200 % (hle_fpslock.c, only where its build has the addresses),
-// 3 MetalFX upscaling in the present on / off (nvn_mtl.m), 4 Apple's Metal performance HUD on / off. DM_GAME_KEYS=0 turns the keys and the box off
+// 3 MetalFX upscaling in the present on / off (nvn_mtl.m), 4 Apple's Metal performance HUD on / off. DM_HUD_KEYS=0 turns the keys and the box off
 int dm_ue_sp(void), dm_ue_sp_cycle(void), dm_gfx_mfx(void), dm_gfx_mfx_toggle(void); uint64_t mtl_present_count(void);
 static NSTextField *g_hud; static int g_hud_mode, g_keys = -1, g_mhud;
-static int keys_on(void) { if (g_keys < 0) { const char *e = getenv("DM_GAME_KEYS"); g_keys = !(e && !strcmp(e, "0")); } return g_keys; }
+static int keys_on(void) { if (g_keys < 0) { const char *e = getenv("DM_HUD_KEYS"); g_keys = !(e && !strcmp(e, "0")); } return g_keys; }
 static NSString *hud_text(void) {
     static uint64_t last_n; static double last_t, fps; double t = CACurrentMediaTime(); uint64_t n = mtl_present_count();
     if (last_t > 0 && t - last_t >= 0.4) { fps = (n - last_n) / (t - last_t); last_n = n; last_t = t; } else if (last_t == 0) { last_n = n; last_t = t; }
     NSString *f = [NSString stringWithFormat:@"FPS %.0f", fps];
     if (g_hud_mode == 1) return f;
-    int sp = dm_ue_sp();
-    NSMutableString *m = [NSMutableString stringWithFormat:@"%@\n1  提示：全部 → 只显示 FPS → 隐藏", f];
-    if (sp > 0) [m appendFormat:@"\n2  渲染分辨率：%d%%（100 → 150 → 200）", sp]; else if (sp == 0) [m appendString:@"\n2  渲染分辨率：游戏原生（100 → 150 → 200）"];
-    [m appendFormat:@"\n3  MetalFX 放大：%@\n4  性能监视（Metal HUD）：%@\n⌃⌘F  全屏", dm_gfx_mfx() ? @"开" : @"关", g_mhud ? @"开" : @"关"];
+    int sp = dm_ue_sp(); static int zh = -1; if (zh < 0) { const char *l = getenv("DM_LANG"); zh = l && !strncmp(l, "zh", 2); }   // Chinese when the game runs in Chinese
+    NSString *yes = zh ? @"\u5F00" : @"on", *no = zh ? @"\u5173" : @"off";
+    NSMutableString *m = [NSMutableString stringWithFormat:zh ? @"%@\n1  \u63D0\u793A\uFF1A\u5168\u90E8 \u2192 \u53EA\u663E\u793A FPS \u2192 \u9690\u85CF" : @"%@\n1  Box: all \u2192 frame rate only \u2192 hidden", f];
+    if (sp > 0) [m appendFormat:zh ? @"\n2  \u6E32\u67D3\u5206\u8FA8\u7387\uFF1A%d%%\uFF08100 \u2192 150 \u2192 200\uFF09" : @"\n2  Render resolution: %d%% (100 \u2192 150 \u2192 200)", sp];
+    else if (sp == 0) [m appendString:zh ? @"\n2  \u6E32\u67D3\u5206\u8FA8\u7387\uFF1A\u6E38\u620F\u539F\u751F\uFF08100 \u2192 150 \u2192 200\uFF09" : @"\n2  Render resolution: the game's own (100 \u2192 150 \u2192 200)"];
+    [m appendFormat:zh ? @"\n3  MetalFX \u653E\u5927\uFF1A%@\n4  \u6027\u80FD\u76D1\u89C6\uFF08Metal HUD\uFF09\uFF1A%@\n\u2303\u2318F  \u5168\u5C4F" : @"\n3  MetalFX upscaling: %@\n4  Performance HUD: %@\n\u2303\u2318F  Fullscreen", dm_gfx_mfx() ? yes : no, g_mhud ? yes : no];
     return m;
 }
 static void hud_refresh(void) {
