@@ -33,3 +33,7 @@ sys_resource	0x0
 # ---- Shader split ----
 shader_groups	/stream/=stream
 shader_note	Xenoblade Chronicles 2 shaders
+
+# ---- Rendering ----
+# NVN front face reversed on Metal (SDK 3.5): with the winding as set, the full-screen probe / SH ambient triangle (fs 93d0e7a7, cull back, front CW) is culled: flat orange skin, black eye sockets, dim lighting
+nvn_front_face	reversed

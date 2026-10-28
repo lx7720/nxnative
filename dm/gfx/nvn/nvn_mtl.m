@@ -7210,6 +7210,7 @@ static void draw(const p_draw *dw, const p_draw_idx *di) {
     if (S.poly.cull == NVN_FACE_FRONT_AND_BACK) { PD("Z %llu draw skipped: both faces culled", g_stat_pass); return; }
     { int cu = S.poly.cull == NVN_FACE_FRONT ? MTLCullModeFront : S.poly.cull == NVN_FACE_BACK ? MTLCullModeBack : MTLCullModeNone;
       int wi = (S.poly.front == NVN_FRONT_FACE_CCW) != atomic_load_explicit(&g_origin_ll, memory_order_relaxed) ? MTLWindingCounterClockwise : MTLWindingClockwise;   // the y flip of lower-left mode reverses the winding
+      if (DM_GAME_NVN_FRONT_REVERSED) wi = wi == MTLWindingClockwise ? MTLWindingCounterClockwise : MTLWindingClockwise;   // game profile nvn_front_face reversed (Xenoblade Chronicles 2, SDK 3.5): the game means the opposite winding
       int fi = S.poly.mode == NVN_POLYGON_MODE_LINE ? MTLTriangleFillModeLines : MTLTriangleFillModeFill, cl = !S.depth_clamp;   // depth clip off = SetDepthClamp
       float bi[3] = {0, 0, 0}; if (S.poly.offset_en & 4) { bi[0] = S.po.units; bi[1] = S.po.factor; bi[2] = S.po.clamp; }
       if (!(g_ed.ok & ED_CULL) || g_ed.cull != cu) { enc_r_cull(en, (MTLCullMode)cu); g_ed.cull = cu; g_ed.ok |= ED_CULL; }
