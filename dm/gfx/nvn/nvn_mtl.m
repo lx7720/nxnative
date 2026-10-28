@@ -1527,7 +1527,7 @@ void mtl_drain(void) { present_drop_for_suspend(); mtl_present_flush(); snap_dra
 
 // ================= Render replay =================
 #include "../../host/front.h"
-static int g_red_once[121];
+static int g_red_once[122];
 #define RED_ONCE(k, ...) do { if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
 // NVN vertex streams 0–15 → Metal vertex buffer slots: 0–13 go to 16–29 (30 is the constant fallback buffer), 14 and 15 to 14 and 15. Metal has only the 31 slots 0–30; translated shaders use only buffer(0) (the argument buffer),
 // and the host's own vertex functions read no vertex buffers. 13 Sentinels uses stream 15, and the old 16 + stream went out of range (Metal assertion: buffer index (31) must be < 31)
@@ -4816,6 +4816,13 @@ static int blend_zero_src1(int f) {
         default: return f;
     }
 }
+// Dual-source factors (SRC1_*) against a fragment shader without a second output at index 1: Apple's compiler service crashes on such a pipeline
+// (AGCLLVMStatelessFragmentObject::buildBlendFactor, a null source-1 value), and the driver then asserts in its fast-clear pipeline. Without the shader's dual-source
+// variant (dsb_fn) the factors are taken as the first source's, with a red line once
+static MTLBlendFactor bfac_s0(int f) {
+    if (f >= 0x10 && f <= 0x13) { RED_ONCE(121, "dual-source blend factor %#x taken as the first source's (the shader has no dual-source variant)", f); f = f == 0x10 ? 3 : f == 0x11 ? 4 : f == 0x12 ? 5 : 6; }
+    return bfac(f);
+}
 // An advanced blend mode (blend_st.adv, hle_nvn.c) replaces the blend functions. The Porter-Duff modes with uncorrelated overlap are sums of the source and destination weighted by
 // 1, 0, As, Ad and their complements (NV_blend_equation_advanced, with premultiplied colours), which the fixed-function factors give exactly; the result goes through the ADD equation.
 // A source that is not premultiplied is multiplied by As first, which only a source factor of ONE can take (SRC_ALPHA). The other modes (multiply, screen, overlay, HSL, ...) need
@@ -4890,6 +4897,20 @@ static int pso_mixed_uint(const pso_key *k, NvShader *fs, int merged) {
     }
     return ints && floats;
 }
+// Dual-source blending: a fragment shader translated with the second colour output at index 1 (dmsh_xlate job "dsb": Ryujinx's DualSourceBlendEnable; dmsh_build.py
+// makes one for each key of the profile's dsb.tsv), kept beside the shader as <key>_bds.metallib. Metroid Prime 4: Beyond's arm cannon and visor effects blend with
+// SRC1_COLOR. Looked up once per key; nil (and a red line naming the key) when the library has no such variant
+static id<MTLFunction> dsb_fn(const char *key) {
+    static NSMutableDictionary *cache; static os_unfair_lock lk = OS_UNFAIR_LOCK_INIT; NSString *k16 = [[NSString alloc] initWithBytes:key length:strnlen(key, 16) encoding:NSUTF8StringEncoding];
+    os_unfair_lock_lock(&lk); if (!cache) cache = [NSMutableDictionary new]; id hit = cache[k16]; os_unfair_lock_unlock(&lk);
+    if (hit) return hit == NSNull.null ? nil : hit;
+    NSError *e = nil; id<MTLLibrary> lib = lib_from_file([NSString stringWithFormat:@"%@/%@_bds.metallib", g_msl_dir, k16], &e);
+    id<MTLFunction> f = lib ? fn4_note([lib newFunctionWithName:@"main0"], lib, @"main0", nil) : nil;
+    if (f) MLOG("dual-source blending: fragment shader %s uses its _bds variant (second output at index 1)", key);
+    else MLOG("[RED] dual-source blending: fragment shader %s has no _bds variant: its SRC1 factors fall back to the first source's (add the key to the profile's dsb.tsv)", key);
+    os_unfair_lock_lock(&lk); cache[k16] = f ?: (id)NSNull.null; os_unfair_lock_unlock(&lk);
+    return f;
+}
 static MTLRenderPipelineDescriptor *pso_desc(const pso_key *k, NvShader *vs, NvShader *fs, id<MTLFunction> fsfn, int merged) {
     MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
     d.vertexFunction = vs->fn; d.fragmentFunction = fsfn ? fsfn : fs ? fs->fn : nil;
@@ -4915,6 +4936,11 @@ static MTLRenderPipelineDescriptor *pso_desc(const pso_key *k, NvShader *vs, NvS
     if (k->fsfn == DISCARD_MARK) { d.vertexFunction = vs->discard_fn; d.fragmentFunction = nil; d.rasterizationEnabled = NO; }
     d.rasterSampleCount = k->samples ? k->samples : 1;
     d.alphaToCoverageEnabled = k->a2c;
+    int dsb = 0;   // a target blends with the second source: take the shader's dual-source variant when there is one (dsb_fn), else the factors fall back to the first source's (bfac_s0)
+    for (int i = 0; i < 8 && fs && !fsfn; i++) { int l = merged ? k->lmap[i] : i; if (!k->cfmt[i] || l == 0xff || !(k->blend_en >> l & 1)) continue;
+        blend_st bl = adv_blend(k->blend[l]); int f4[4] = {bl.src_rgb, bl.dst_rgb, bl.src_a, bl.dst_a};
+        for (int q = 0; q < 4; q++) if (f4[q] >= 0x10 && f4[q] <= 0x13) dsb = 1; }
+    if (dsb && d.fragmentFunction == fs->fn) { id<MTLFunction> v = dsb_fn(fs->key); if (v) d.fragmentFunction = v; else dsb = 0; } else dsb = 0;
     for (int i = 0; i < 8; i++) {
         if (!k->cfmt[i]) continue;
         MTLRenderPipelineColorAttachmentDescriptor *c = d.colorAttachments[i];
@@ -4934,8 +4960,8 @@ static MTLRenderPipelineDescriptor *pso_desc(const pso_key *k, NvShader *vs, NvS
                 bl.src_rgb = blend_zero_src1(bl.src_rgb); bl.dst_rgb = blend_zero_src1(bl.dst_rgb);
                 bl.src_a = blend_zero_src1(bl.src_a); bl.dst_a = blend_zero_src1(bl.dst_a);
             }
-            c.sourceRGBBlendFactor = bfac(bl.src_rgb); c.destinationRGBBlendFactor = bfac(bl.dst_rgb);
-            c.sourceAlphaBlendFactor = bfac(bl.src_a); c.destinationAlphaBlendFactor = bfac(bl.dst_a);
+            c.sourceRGBBlendFactor = dsb ? bfac(bl.src_rgb) : bfac_s0(bl.src_rgb); c.destinationRGBBlendFactor = dsb ? bfac(bl.dst_rgb) : bfac_s0(bl.dst_rgb);
+            c.sourceAlphaBlendFactor = dsb ? bfac(bl.src_a) : bfac_s0(bl.src_a); c.destinationAlphaBlendFactor = dsb ? bfac(bl.dst_a) : bfac_s0(bl.dst_a);
             c.rgbBlendOperation = bop(bl.eq_rgb); c.alphaBlendOperation = bop(bl.eq_a);
         }
     }

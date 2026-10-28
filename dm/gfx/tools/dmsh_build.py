@@ -40,6 +40,9 @@ for _d in [out] + ([IOSOUT] if IOSOUT else []):   # one chain version serves eve
     if _g and _g != GAME.id: sys.exit(f'[RED] {_d} holds the shader libraries of game {_g}, not {GAME.id}: give each game its own output directory')
 MAP = str(GAME.table('shader_map.tsv'))
 BF_WANT_FILE = str(GAME.table('bf_want.tsv'))
+# Pixel shaders the game draws with dual-source blending (SRC1_* factors), one key per line in the profile's dsb.tsv: each also gets <key>_bds.metallib, translated with
+# Ryujinx's DualSourceBlendEnable (the second colour output at index 1), which the host takes for those pipelines (nvn_mtl.m dsb_fn; the host names the missing ones in a red line)
+DSB_KEYS = {l.split()[0] for l in open(GAME.table('dsb.tsv')) if l.strip() and not l.startswith('#')} if GAME.table('dsb.tsv').is_file() else set()
 BF_WANT = {line.strip() for line in open(BF_WANT_FILE) if line.strip() and not line.lstrip().startswith('#')} if os.path.exists(BF_WANT_FILE) else set()
 XC = ['--msl', '--msl-version', '20300', '--msl-argument-buffers', '--msl-texture-buffer-native', '--msl-pad-fragment-output']
 # spirv-cross writes the translator's FMin / FMax / FClamp as fast::min / max / clamp, whose result for a NaN operand is the GPU's choice; Maxwell's FMNMX returns the other operand
@@ -923,6 +926,15 @@ def finish(key, w, j, c1):
             src = open(msl).read()
     try: src = dmsh_atomic.check_msl(src)
     except ValueError as e: return 'image atomic MSL failed', str(e), None
+    if j['stage'] == 'ps' and key in DSB_KEYS:   # the dual-source variant (DSB_KEYS): its own translation in its own folder, then MSL and a library beside the shader's
+        wd = os.path.join(w, 'dsb_' + key); os.makedirs(wd, exist_ok=True); jp = os.path.join(wd, 'job.json'); json.dump([dict(j, dsb=True)], open(jp, 'w'))
+        rx = subprocess.run([XLATE, jp, wd], capture_output=True, text=True); sp, m2 = os.path.join(wd, key + '.spv'), os.path.join(wd, key + '.metal')
+        r2 = None if rx.returncode or not os.path.exists(sp) else subprocess.run([SPIRV_CROSS, *dmsh_atomic.cross_args(XC, sp), sp, '--output', m2], capture_output=True, text=True)
+        try:
+            if not r2 or r2.returncode: raise ValueError((rx.stderr if rx.returncode else r2.stderr if r2 else 'no spv').strip()[:160])
+            open(m2, 'w').write(dmsh_atomic.check_msl(open(m2).read())); MTL.compile('mac', m2, os.path.join(out, key + '_bds.metallib'))
+            if IOSOUT: MTL.compile('ios', m2, os.path.join(IOSOUT, key + '_bds.metallib'))
+        except (ValueError, subprocess.CalledProcessError) as e: print(f'[RED] {key}: dual-source variant not built: {str(e)[:160]}')
     src = precise(src); open(msl, 'w').write(src)   # min / max / clamp with Maxwell's NaN results (see precise)
     pad = []
     if j['stage'] == 'vs':   # outputs start as (0,0,0,1) (see vs_init); no point size beside a layer output (see vs_layer)

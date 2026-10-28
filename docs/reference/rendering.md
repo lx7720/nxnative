@@ -370,6 +370,13 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
 - **Found on:** [Super Smash Bros. Ultimate](../../dm/games/01006A800016E000/README.md) (13.0.5, `DM_WINDOW=1`).
 - **Check:** Breath of the Wild windowed with the change: its title, 60 fps, no GPU error.
 
+### Dual-source blending
+
+- **Symptom:** the process aborts in Apple's driver as a first 3D scene comes up (`[AGX] Failed assertion "error == MTLCompilerErrorNoError"` in `findOrCreateComputeFastClearPipeline`, with an `MTLCompilerService` crash report in `AGCLLVMStatelessFragmentObject::buildBlendFactor`); or, with the fallback below, objects that blend with the second source come out wrong (Metroid Prime 4: Beyond's arm cannon was flat magenta).
+- **Cause:** NVN's `SRC1_*` blend factors read a second colour output of the fragment shader. The offline translation does not know the blend state, so the shader has no output at index 1, and a pipeline that blends with Source1 against it crashes Apple's compiler service.
+- **Fix:** the profile's `dsb.tsv` lists the pixel shaders drawn with dual-source blending; `dmsh_build.py` translates each a second time with Ryujinx's `DualSourceBlendEnable` (dmsh_xlate job `dsb`: the second output at index 1) into `<key>_bds.metallib`, and `pso_desc` takes that function for pipelines whose targets blend with Source1 (`dsb_fn`). A shader with no variant gets the first source's factors instead (`bfac_s0`) and a red line naming its key, for the profile's list.
+- **Found on:** Metroid Prime 4: Beyond (`af84ccd3191eaf89`, the arm cannon).
+
 ### The present upscales through MetalFX
 
 - **Symptom:** a game that renders below the screen's resolution looks soft on a phone, in a large Mac window or on a 4K screen.
