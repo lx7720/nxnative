@@ -3,6 +3,7 @@
 // (hle_nvn.c); the game sets the values after boot and may set them again, so each is written whenever it differs. Fixed addresses: each row runs only on the main build it was found in (AGENTS.md)
 #include "hle.h"
 #include <mach/mach.h>
+#include <TargetConditionals.h>
 
 // What a field holds: the frame rate as a float or int32, vsyncs per frame (60 / frame rate) as an int32, or the frame time in milliseconds as a float. Copies: consecutive copies of the value
 // (Unreal keeps one for the game thread, one for the render thread). A row with no pointer (ptr_off 0) has its field at main + field: a constant in main's read-only data, which the loader
@@ -77,14 +78,20 @@ static int uesp_row(void) {
     g_uesp_row = -1;
     for (int i = 0; i < g_nmod; i++) if (!strcmp(g_mod[i].name, "main"))
         for (int k = 0; k < (int)(sizeof k_uesp / sizeof k_uesp[0]); k++) if (!strcmp(g_mod[i].build_id, k_uesp[k].build)) { g_uesp_base = g_mod[i].base; g_uesp_row = k; }
-    const char *e = getenv("DM_UE_SCREEN_PERCENT"); float v = e ? strtof(e, NULL) : DM_GAME_UE_SCREEN_PERCENT;   // the profile's ue_screen_percent unless the environment says
+    // the profile's ue_screen_percent (the Mac's default; an iPhone keeps the game's own unless chosen) unless the environment says
+#if TARGET_OS_IPHONE
+    const float def = 0;
+#else
+    const float def = DM_GAME_UE_SCREEN_PERCENT;
+#endif
+    const char *e = getenv("DM_UE_SCREEN_PERCENT"); float v = e ? strtof(e, NULL) : def;
     if (v != 0 && (v < 25 || v > 400)) { LOG("[RED] DM_UE_SCREEN_PERCENT=%g: must be 25 to 400; leaving the game's resolution", v); v = 0; }
     if (v != 0 && g_uesp_row < 0) LOG("DM_UE_SCREEN_PERCENT=%g: no address for this main build; ignored", v);
     g_uesp_want = g_uesp_row < 0 ? 0 : v;
     return g_uesp_row;
 }
-// The Mac window's key 2 (front_mac.m): the percentage held now (0 = the game's own or no address), and the next of 100 → 150 → 200 (returns it; 0 when this build has no address)
-int dm_ue_sp(void) { return g_uesp_row == -2 ? 0 : (int)g_uesp_want; }
+// The Mac window's key 2 (front_mac.m): the percentage held now (0 = the game's own, -1 = no address for this build), and the next of 100 → 150 → 200 (returns it; 0 when this build has no address)
+int dm_ue_sp(void) { return g_uesp_row < 0 ? -1 : (int)g_uesp_want; }   // -1: no address (or not looked up yet)
 int dm_ue_sp_cycle(void) {
     if (uesp_row() < 0) return 0;
     int w = (int)g_uesp_want, n = w < 100 ? 100 : w < 150 ? 150 : w < 200 ? 200 : 100;

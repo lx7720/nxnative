@@ -111,7 +111,7 @@ static NSString *hud_text(void) {
     if (g_hud_mode == 1) return f;
     int sp = dm_ue_sp();
     NSMutableString *m = [NSMutableString stringWithFormat:@"%@\n1  提示：全部 → 只显示 FPS → 隐藏", f];
-    if (sp) [m appendFormat:@"\n2  渲染分辨率：%d%%（100 → 150 → 200）", sp];
+    if (sp > 0) [m appendFormat:@"\n2  渲染分辨率：%d%%（100 → 150 → 200）", sp]; else if (sp == 0) [m appendString:@"\n2  渲染分辨率：游戏原生（100 → 150 → 200）"];
     [m appendFormat:@"\n3  MetalFX 放大：%@\n4  性能监视（Metal HUD）：%@\n⌃⌘F  全屏", dm_gfx_mfx() ? @"开" : @"关", g_mhud ? @"开" : @"关"];
     return m;
 }
