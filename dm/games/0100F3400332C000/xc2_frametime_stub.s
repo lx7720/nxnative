@@ -21,12 +21,11 @@ stub:
   ucvtf d1, x1
   fdiv d0, d0, d1
   fcvt s0, d0
+  ldr  s1, [x2, #0x4c]      // again: s1 does not survive the two counter reads (host gates); without it the battle start stepped by inf and froze (2026-10-25)
   fmov s2, #1.0
   fdiv s2, s2, s1
   fcmp s0, s2
-  b.ge 1f
-  fmov s0, s2
-1:
+  fcsel s0, s2, s0, lt
   fadd s2, s2, s2
   fcmp s0, s2
   b.le 2f
